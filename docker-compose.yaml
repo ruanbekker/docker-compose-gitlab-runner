@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  dind:
+    image: docker:20-dind
+    container_name: "gl-group-runner-dind"
+    hostname: dind
+    privileged: true
+    volumes:
+      - docker-dind:/var/lib/docker
+      - certs:/certs/client
+    restart: unless-stopped
+    command:
+      - --tlsverify=false
+    networks:
+      - public
+    environment:
+      - DOCKER_TLS_CERTDIR=/certs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+
+  gl-group-runner-runner:
+    image: gitlab/gitlab-runner:alpine
+    container_name: "gl-group-runner-runner"
+    hostname: runner
+    volumes:
+      - ./config:/etc/gitlab-runner:z
+      - ./data/runner/cache:/cache
+      - certs:/certs/client
+    environment:
+      DOCKER_HOST: "tcp://dind:2376"
+      DOCKER_TLS_CERTDIR: "/certs/client"
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_MACHINE_NAME: "dind"
+      DOCKER_CERT_PATH: "/certs/client"
+    restart: unless-stopped
+    networks:
+      - public
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+
+  gl-group-runner-registration:
+    image: gitlab/gitlab-runner:alpine
+    container_name: "gl-group-runner-runner-registration"
+    hostname: registration
+    depends_on:
+      - dind
+    restart: 'no'
+    environment:
+      - CI_SERVER_URL=${CI_SERVER_URL}
+      - REGISTRATION_TOKEN=${REGISTRATION_TOKEN}
+    command:
+      - register
+      - --non-interactive
+      - --locked=false
+      - --name=${RUNNER_NAME}
+      - --executor=docker
+      - --docker-image=docker:20-dind
+      - --docker-volumes=/var/run/docker.sock:/var/run/docker.sock
+    volumes:
+      - ./config:/etc/gitlab-runner:z
+      - ./data/dind/docker:/var/lib/docker
+    networks:
+      - public
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+
+volumes:
+  docker-dind: {}
+  certs: {}
+
+networks:
+  public:
+    name: public
